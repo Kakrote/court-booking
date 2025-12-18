@@ -1,0 +1,240 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  // url      = env("DATABASE_URL")
+}
+
+enum CourtSurface {
+  INDOOR
+  OUTDOOR
+}
+
+enum BookingStatus {
+  CONFIRMED
+  CANCELLED
+}
+
+enum PricingAppliesTo {
+  COURT
+  COACH
+  EQUIPMENT
+}
+
+enum DayType {
+  ANY
+  WEEKDAY
+  WEEKEND
+}
+
+enum WaitlistStatus {
+  QUEUED
+  NOTIFIED
+  CANCELLED
+}
+
+enum NotificationType {
+  WAITLIST_AVAILABLE
+}
+
+model FacilityConfig {
+  id          String   @id @default("default")
+  timezone    String   @default("local")
+  openTime    DateTime @db.Time
+  closeTime   DateTime @db.Time
+  slotMinutes Int      @default(60)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Court {
+  id                   String       @id @default(cuid())
+  name                 String       @unique
+  surface              CourtSurface
+  baseRateCentsPerHour Int
+  isActive             Boolean      @default(true)
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  courtBookings BookingCourt[]
+
+  @@index([isActive, surface])
+}
+
+model EquipmentType {
+  id            String   @id @default(cuid())
+  name          String   @unique
+  unitPriceCents Int
+  totalQuantity Int
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  reservations BookingEquipment[]
+  pricingRules PricingRule[]
+
+  @@index([isActive])
+}
+
+model Coach {
+  id             String   @id @default(cuid())
+  name           String   @unique
+  hourlyRateCents Int
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  availability  CoachAvailability[]
+  coachBookings BookingCoach[]
+  pricingRules  PricingRule[]
+
+  @@index([isActive])
+}
+
+model CoachAvailability {
+  id        String   @id @default(cuid())
+  coachId   String
+  dayOfWeek Int
+  startTime DateTime @db.Time
+  endTime   DateTime @db.Time
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  coach Coach @relation(fields: [coachId], references: [id], onDelete: Cascade)
+
+  @@index([coachId, dayOfWeek, isActive])
+}
+
+model Booking {
+  id              String        @id @default(cuid())
+  customerName    String
+  customerEmail   String
+  startAt         DateTime
+  endAt           DateTime
+  status          BookingStatus @default(CONFIRMED)
+  priceTotalCents Int
+  priceBreakdown  Json
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  cancelledAt     DateTime?
+
+  court     BookingCourt?
+  coach     BookingCoach?
+  equipment BookingEquipment[]
+
+  @@index([customerEmail, createdAt])
+  @@index([status, startAt])
+}
+
+model BookingCourt {
+  id        String   @id @default(cuid())
+  bookingId String   @unique
+  courtId   String
+  startAt   DateTime
+  endAt     DateTime
+  createdAt DateTime @default(now())
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  court   Court   @relation(fields: [courtId], references: [id])
+
+  @@index([courtId, startAt, endAt])
+}
+
+model BookingCoach {
+  id        String   @id @default(cuid())
+  bookingId String   @unique
+  coachId   String
+  startAt   DateTime
+  endAt     DateTime
+  createdAt DateTime @default(now())
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  coach   Coach   @relation(fields: [coachId], references: [id])
+
+  @@index([coachId, startAt, endAt])
+}
+
+model BookingEquipment {
+  id              String   @id @default(cuid())
+  bookingId       String
+  equipmentTypeId String
+  quantity        Int
+  startAt         DateTime
+  endAt           DateTime
+  createdAt       DateTime @default(now())
+
+  booking       Booking        @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  equipmentType EquipmentType  @relation(fields: [equipmentTypeId], references: [id])
+
+  @@index([equipmentTypeId, startAt, endAt])
+  @@index([bookingId])
+}
+
+model PricingRule {
+  id              String          @id @default(cuid())
+  name            String
+  isActive        Boolean         @default(true)
+  priority        Int             @default(100)
+  appliesTo       PricingAppliesTo
+  dayType         DayType         @default(ANY)
+  startTime       DateTime?       @db.Time
+  endTime         DateTime?       @db.Time
+  courtSurface    CourtSurface?
+  equipmentTypeId String?
+  coachId         String?
+  multiplierBps   Int             @default(10000)
+  addCents        Int             @default(0)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  equipmentType EquipmentType? @relation(fields: [equipmentTypeId], references: [id])
+  coach         Coach?         @relation(fields: [coachId], references: [id])
+
+  @@index([isActive, appliesTo, dayType])
+  @@index([courtSurface])
+}
+
+model WaitlistEntry {
+  id              String         @id @default(cuid())
+  customerName    String
+  customerEmail   String
+  startAt         DateTime
+  endAt           DateTime
+  preferredSurface CourtSurface?
+  wantsCoach      Boolean        @default(false)
+  queueKey        String
+  status          WaitlistStatus @default(QUEUED)
+  position        Int
+  createdAt       DateTime       @default(now())
+  notifiedAt      DateTime?
+
+  @@index([status, startAt])
+  @@index([queueKey, status, position])
+  @@unique([queueKey, position])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  email     String
+  type      NotificationType
+  payload   Json
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  @@index([email, isRead, createdAt])
+}
+
+model AdminUser {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([isActive])
+}
