@@ -6,7 +6,22 @@ import { hash } from "bcryptjs";
 
 dotenv.config({ override: true });
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl) throw new Error("DATABASE_URL is not set");
+
+let ssl: false | { rejectUnauthorized: boolean } = false;
+try {
+  const u = new URL(databaseUrl);
+  const sslmode = u.searchParams.get("sslmode");
+  const sslParam = u.searchParams.get("ssl");
+  if (sslmode === "require" || sslParam === "true") {
+    ssl = { rejectUnauthorized: false };
+  }
+} catch {
+  // ignore
+}
+
+const pool = new Pool({ connectionString: databaseUrl, ssl });
 const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
 
 function time(hhmm: string) {
